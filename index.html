@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pinwheel TV</title></head><body>
+<script>
+/* ===== Pinwheel TV receiver (opened on the TV with ?tv) ===== */
+(function(){
+ window.__pwTV=1;
+ var cfg=window.PW_CAST||{},ID=function(c){return 'pinwheel-tv-'+c},LIB=['https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js','https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js'];
+ var st=document.createElement('style');
+ st.textContent='html,body{margin:0;height:100%;background:#000;overflow:hidden}#pwtv,#pwtv *{box-sizing:border-box}#pwtv{position:fixed;inset:0;z-index:2147483647;background:#0b0d17;color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;cursor:none}'
+ +'#pwtv .wait{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:4vh 6vw;gap:2.4vh;background:radial-gradient(120% 90% at 50% 0,#1b2150,#0b0d17 70%)}'
+ +'#pwtv .brand{display:flex;align-items:center;gap:1.6vh;font-size:4vh;font-weight:800;letter-spacing:.02em}#pwtv .brand svg{width:6vh;height:6vh}'
+ +'#pwtv h1{margin:0;font-size:5.4vh;font-weight:700}#pwtv .code{font-size:17vh;line-height:1;font-weight:800;letter-spacing:.08em;font-variant-numeric:tabular-nums;background:#ffffff14;border:2px solid #ffffff30;border-radius:3vh;padding:2.4vh 4vh}'
+ +'#pwtv p{margin:0;font-size:3vh;line-height:1.5;color:#c7cbe8;max-width:70vw}#pwtv p b{color:#fff}#pwtv .stat{font-size:2.6vh;color:#9aa3d6;display:flex;align-items:center;gap:1.2vh}#pwtv .dot{width:1.6vh;height:1.6vh;border-radius:50%;background:#f5a524;animation:pwp 1.2s infinite}#pwtv .dot.ok{background:#22c55e;animation:none}#pwtv .dot.bad{background:#ef4444;animation:none}@keyframes pwp{50%{opacity:.3}}'
+ +'#pwtv .show{position:absolute;inset:0;background:#000;display:none}#pwtv.live .show{display:block}#pwtv.live .wait{display:none}'
+ +'#pwtv .stage{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}#pwtv .stage img{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;opacity:0;transition:opacity .22s ease}#pwtv .stage img.on{opacity:1}'
+ +'#pwtv canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}'
+ +'#pwtv .laser{position:absolute;width:3.2vh;height:3.2vh;margin:-1.6vh 0 0 -1.6vh;border-radius:50%;background:radial-gradient(circle,#fff 0,#ff2d2d 35%,#ff2d2d55 62%,transparent 72%);box-shadow:0 0 3vh 1vh #ff2d2d88;display:none;pointer-events:none}'
+ +'#pwtv .blank{position:absolute;inset:0;background:#000;display:none}#pwtv .blank.on{display:block}'
+ +'#pwtv .tip{position:absolute;left:50%;bottom:3vh;transform:translateX(-50%);background:#000b;color:#fff;border:1px solid #ffffff40;border-radius:99px;padding:1.2vh 3vh;font-size:2.4vh;opacity:0;transition:opacity .4s;pointer-events:none;white-space:nowrap}#pwtv .tip.on{opacity:1}'
+ +'#pwtv .pg{position:absolute;right:2vh;top:2vh;background:#000a;color:#fff;border-radius:99px;padding:.8vh 2vh;font-size:2.2vh;opacity:0;transition:opacity .4s;pointer-events:none}#pwtv .pg.on{opacity:1}';
+ document.head.appendChild(st);
+ var root=document.createElement('div');root.id='pwtv';
+ root.innerHTML='<div class="wait"><div class="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><g transform="translate(32 32)"><path d="M0 0L-4-28A18 18 0 0 1 20-20Z" fill="#3cd6ff"/><path d="M0 0L28-4A18 18 0 0 1 20 20Z" fill="#ff4f81"/><path d="M0 0L4 28A18 18 0 0 1-20 20Z" fill="#ffd166"/><path d="M0 0L-28 4A18 18 0 0 1-20-20Z" fill="#7c3aed"/></g></svg>Pinwheel</div><h1>Present on this TV</h1><div class="code" id="tvc">······</div><p>On your phone open <b>Pinwheel</b>, tap <b>Share</b>, then <b>Present on TV</b>, and enter this code.</p><div class="stat"><span class="dot" id="tvd"></span><span id="tvs">Starting…</span></div></div>'
+ +'<div class="show"><div class="stage" id="tvst"><img alt=""><img alt=""><canvas></canvas><div class="laser"></div></div><div class="blank"></div><div class="pg"></div><div class="tip"></div></div>';
+ function mount(){(document.body||document.documentElement).appendChild(root)}
+ mount();document.title='Pinwheel TV';
+ var $=function(s){return root.querySelector(s)},imgs=root.querySelectorAll('.stage img'),cv=$('canvas'),cx=cv.getContext('2d'),stage=$('#tvst'),laser=$('.laser'),blank=$('.blank'),tip=$('.tip'),pgEl=$('.pg');
+ var peer=null,conn=null,code='',lastRx=0,seq=0,cur=-1,ar=16/9,front=0,strokes=[],live=null,tipT=0,pgT=0,wl=null,retry=0;
+ function newCode(){var a=new Uint32Array(1);crypto.getRandomValues?crypto.getRandomValues(a):a[0]=Math.random()*4e9;return String(100000+a[0]%900000)}
+ function setCode(c){code=c;try{localStorage.setItem('pw-tv-code',c)}catch(e){}$('#tvc').textContent=c.slice(0,3)+' '+c.slice(3)}
+ function status(t,k){$('#tvs').textContent=t;$('#tvd').className='dot'+(k?' '+k:'')}
+ function say(t,ms){tip.textContent=t;tip.classList.add('on');clearTimeout(tipT);tipT=setTimeout(function(){tip.classList.remove('on')},ms||2500)}
+ function fit(){var W=innerWidth,H=innerHeight,w=Math.min(W,H*ar),h=w/ar;stage.style.width=w+'px';stage.style.height=h+'px';cv.width=Math.round(w);cv.height=Math.round(h);redraw()}
+ function redraw(){cx.clearRect(0,0,cv.width,cv.height);cx.lineCap='round';cx.lineJoin='round';cx.strokeStyle='#ff2d2d';cx.lineWidth=Math.max(4,cv.width*.006);strokes.forEach(function(s){if(s.length<1)return;cx.beginPath();cx.moveTo(s[0][0]*cv.width,s[0][1]*cv.height);for(var i=1;i<s.length;i++)cx.lineTo(s[i][0]*cv.width,s[i][1]*cv.height);if(s.length==1)cx.lineTo(s[0][0]*cv.width+.1,s[0][1]*cv.height);cx.stroke()})}
+ addEventListener('resize',fit);
+ function showFrame(m){
+  if(m.seq<seq)return;seq=m.seq;
+  var im=new Image();im.onload=function(){
+   if(m.seq<seq)return;
+   var nar=im.naturalWidth/im.naturalHeight;if(Math.abs(nar-ar)>.001){ar=nar;fit()}
+   var nxt=imgs[1-front],old=imgs[front];nxt.src=im.src;nxt.classList.add('on');old.classList.remove('on');front=1-front;
+   root.classList.add('live')};
+  im.src=m.img;
+  if(m.i!==cur){cur=m.i;strokes=[];live=null;redraw();laser.style.display='none'}
+  pgEl.textContent=(m.i+1)+' / '+m.n;pgEl.classList.add('on');clearTimeout(pgT);pgT=setTimeout(function(){pgEl.classList.remove('on')},1800)}
+ function pt(m){return[Math.max(0,Math.min(1,m.x)),Math.max(0,Math.min(1,m.y))]}
+ function onData(m){
+  if(!m||typeof m!=='object')return;lastRx=Date.now();
+  switch(m.t){
+   case'frame':showFrame(m);break;
+   case'laser':if(m.on){var p=pt(m);laser.style.display='block';laser.style.left=p[0]*100+'%';laser.style.top=p[1]*100+'%'}else laser.style.display='none';break;
+   case'ink':var q=pt(m);if(m.a==='s'){live=[q];strokes.push(live)}else if(live){live.push(q)}if(m.a==='e')live=null;redraw();break;
+   case'clear':strokes=[];live=null;redraw();break;
+   case'blank':blank.classList.toggle('on',!!m.on);break;
+   case'end':endSession();break}}
+ function send(m){try{conn&&conn.open&&conn.send(m)}catch(e){}}
+ function endSession(){
+  try{conn&&conn.close()}catch(e){}conn=null;root.classList.remove('live');seq=0;cur=-1;strokes=[];blank.classList.remove('on');laser.style.display='none';
+  imgs[0].classList.remove('on');imgs[1].classList.remove('on');
+  setCode(newCode());try{peer&&peer.destroy()}catch(e){}peer=null;setTimeout(boot,300)}
+ function boot(){
+  status('Connecting…');
+  if(!window.Peer){loadLib(0);return}
+  var opts=cfg.peer&&typeof cfg.peer==='object'?cfg.peer:{};
+  try{peer=new Peer(ID(code),opts)}catch(e){status('Can’t start. Reload this page.','bad');return}
+  var p=peer;
+  p.on('open',function(){retry=0;status('Waiting for your phone…')});
+  p.on('connection',function(c){
+   if(conn&&conn!==c){try{conn.close()}catch(e){}}
+   conn=c;lastRx=Date.now();
+   c.on('open',function(){send({t:'ready'});status('Connected','ok')});
+   c.on('data',onData);
+   var lost=function(){if(conn!==c)return;conn=null;if(root.classList.contains('live'))say('Presenter disconnected. Waiting…',6000);status('Waiting for your phone…')};
+   c.on('close',lost);c.on('error',lost)});
+  p.on('disconnected',function(){setTimeout(function(){try{p.reconnect()}catch(e){}},1500)});
+  p.on('error',function(e){
+   if(e&&e.type==='unavailable-id'){setCode(newCode());try{p.destroy()}catch(x){}peer=null;setTimeout(boot,300);return}
+   if(e&&(e.type==='network'||e.type==='server-error'||e.type==='socket-error'||e.type==='socket-closed')){status('No internet connection. Retrying…','bad');try{p.destroy()}catch(x){}peer=null;setTimeout(boot,Math.min(15000,3000+retry++*2000))}})}
+ function loadLib(i){
+  if(window.Peer){boot();return}
+  if(i>=LIB.length){status('Couldn’t load the connection library. Check the internet, then reload.','bad');return}
+  var s=document.createElement('script');s.src=LIB[i];s.onload=boot;s.onerror=function(){loadLib(i+1)};document.head.appendChild(s)}
+ /* TV remote / keyboard */
+ function fs(){var e=document.documentElement;if(!document.fullscreenElement&&e.requestFullscreen)e.requestFullscreen().catch(function(){})}
+ function wake(){try{navigator.wakeLock&&navigator.wakeLock.request('screen').then(function(l){wl=l}).catch(function(){})}catch(e){}}
+ addEventListener('keydown',function(e){
+  var k=e.key,d=0;
+  if(k==='ArrowRight'||k==='ArrowDown'||k===' '||k==='Enter'||k==='PageDown'||k==='MediaTrackNext'||k==='n')d=1;
+  else if(k==='ArrowLeft'||k==='ArrowUp'||k==='PageUp'||k==='Backspace'||k==='MediaTrackPrevious'||k==='p')d=-1;
+  var first=!document.fullscreenElement;fs();wake();
+  if(d&&root.classList.contains('live')){e.preventDefault();send({t:'nav',d:d})}else if(k==='Enter'||k==='f')e.preventDefault()});
+ addEventListener('click',function(e){fs();wake();if(root.classList.contains('live'))send({t:'nav',d:e.clientX<innerWidth/3?-1:1})});
+ setInterval(function(){
+  if(conn&&conn.open){send({t:'ping'});if(Date.now()-lastRx>16000){say('Lost the presenter. Waiting…',6000);try{conn.close()}catch(e){}conn=null;status('Waiting for your phone…')}}},5000);
+ try{var c0=localStorage.getItem('pw-tv-code');setCode(/^\d{6}$/.test(c0||'')?c0:newCode())}catch(e){setCode(newCode())}
+ fit();
+ /* stop the editor from loading, this page is only a receiver */
+ setTimeout(function(){boot()},0);
+ 
+})();
+</script>
+</body></html>
